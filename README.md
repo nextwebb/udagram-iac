@@ -1,6 +1,10 @@
-                ###  Deploy Infrastructure as Code (IAC)
-            ### Deploy a high-availability web app using CloudFormation
-        ### Udagram (a high-availability web app using CloudFormation)
+# Deploy a high-availability web app using CloudFormation
+
+## Udagram (a high-availability web app using CloudFormation)
+
+## Starter template
+
+![Cloudformation] (https://github.com/nextwebb/nd9991-c2-Infrastructure-as-Code-v1)
 
 ## Architecture
 
