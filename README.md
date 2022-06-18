@@ -4,7 +4,7 @@
 
 ## Starter template
 
-![Cloudformation] (https://github.com/nextwebb/nd9991-c2-Infrastructure-as-Code-v1)
+[`Cloudformation`](https://github.com/nextwebb/nd9991-c2-Infrastructure-as-Code-v1)
 
 ## Architecture
 
