@@ -23,3 +23,5 @@ Services stack complete the creation and outputs the website [`URL`](http://udag
 ## Web App Url
 
 http://udagr-webap-1qlh6k5zgqvyr-1055814940.us-east-1.elb.amazonaws.com/
+
+![Website](./website.png)
