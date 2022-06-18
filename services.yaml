@@ -1,0 +1,245 @@
+Description: Udacity DevOps nanao degree project 2 (udagramy) deploy highly available web app.
+   Peterson Oaikhenah / Nextwebb
+
+  Services infrastructure
+
+   Launch Configuration for your application servers in order to deploy four servers, two located in each of your private subnets. The launch configuration will be used by an auto-scaling group.
+
+    You'll need two vCPUs and at least 4GB of RAM. The Operating System to be used is Ubuntu 18. So, choose an Instance size and Machine Image (AMI) that best fits this spec.
+
+    Allocate at least 10GB of disk space so that you don't run into issues.
+
+Parameters:
+  EnvironmentName:
+    Description: An environment name that will be prefixed to resource names
+    Type: String
+
+  Project:
+    Description: Project name used for tagging purposes
+    Type: String
+
+  WebServerImageId:
+    Description: Web serve image id
+    Type: String
+    Default: ami-0729e439b6769d6ab # Ubuntu Server 18.04 LTS (HVM),EBS General Purpose (SSD) Volume Type
+
+  WebServerVolumeSize:
+    Description: Web server disk volume size spec
+    Type: String
+    Default: 10
+
+
+  WebServerInstanceType:
+    AllowedValues:
+      - t2.nano
+      - t2.medium
+      - t2.large
+      - t3.medium
+      - t3.large
+      - t3.xlarge
+      - m1.medium
+      - m1.large
+      - m1.xlarge
+      - m2.xlarge
+      - m2.2xlarge
+      - m2.4xlarge
+      - m3.medium
+      - m3.large
+      - m3.xlarge
+      - m3.2xlarge
+      - m4.large
+      - m4.xlarge
+      - m4.2xlarge
+      - m4.4xlarge
+      - m4.10xlarge
+    ConstraintDescription: Web server instance type. t2.nano - dev instance, t3.medium - default
+    Default: t3.medium
+    Description: WebServer EC2 instance type
+    Type: String
+
+  CPUUsagePercentPolicyTargetValue:
+    Description: Average CPU utilization
+    Type: String
+    Default: 70
+
+  ALBRequestCompleteCountTargetValue:
+    Description: Number of requests completed per target in an Application Load Balancer target group.
+                How many requests the application can handle per instance
+    Type: String
+    Default: 3
+
+Resources:
+
+  # IAM role with IAM identity  specific permissions for AWS account.
+  # Web server Role 
+
+  UdagramS3ReadOnlyEC2:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+
+  # An instance profile is a container for an IAM role that you can use to pass role information
+  # to an EC2 instance when the instance starts.
+  ProfileWithRolesForApp:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - !Ref UdagramS3ReadOnlyEC2
+
+  # The LaunchConfiguration resource Defines/declare the Amazon EC2 Auto Scaling launch configuration
+  # that can be used by an Auto Scaling group to configure Amazon EC2 instances
+  WebAppServer:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          apt-get update -y
+          apt-get install unzip awscli -y
+          apt-get install apache2 -y
+          systemctl start apache2.service
+          cd /var/www/html
+          aws s3 cp s3://udagram-site/udagram.zip .
+          unzip -o udagram.zip
+      ImageId: !Ref WebServerImageId
+      IamInstanceProfile: !Ref ProfileWithRolesForApp
+      SecurityGroups:
+      - Fn::ImportValue:
+          !Sub "${Project}-AppSecurityGroupID"
+      InstanceType: !Ref WebServerInstanceType #should be a t3.small or better.
+      BlockDeviceMappings:
+      - DeviceName: "/dev/sdk"
+        Ebs:
+          VolumeSize: !Ref WebServerVolumeSize # The machine should have 10 GB  
+
+
+  #Resource groups
+  # Defines/declare a target group for an Application Load Balancer 
+  WebAppTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: / # physical file path check.
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 7
+      HealthyThresholdCount: 2
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 5
+      VpcId:
+        Fn::ImportValue:
+          Fn::Sub: "${Project}-VPCID"
+
+  # Defines an Amazon EC2 Auto Scaling group with the specified name and attributes.
+  # The auto-scaling group needs to have a property that associates it with a target group.
+  WebAppServerGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      # Private Subnets
+      VPCZoneIdentifier:
+        - Fn::ImportValue: !Sub ${Project}-Private-Subnet-IDs
+      LaunchConfigurationName: !Ref WebAppServer
+      MinSize: '2'
+      MaxSize: '4'
+      TargetGroupARNs:
+      - Ref: WebAppTargetGroup
+      Tags:
+        - Key: Name
+          Value: EC2-Instance
+          PropagateAtLaunch: true
+        - Key: Project
+          Value: !Ref Project
+          PropagateAtLaunch: true
+
+
+  # Defines/declare an Application Load Balancer
+  
+  WebAppLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Subnets:
+      - Fn::ImportValue: !Sub ${Project}-Public-Subnet-1-ID
+      - Fn::ImportValue: !Sub ${Project}-Public-Subnet-2-ID
+      SecurityGroups:
+      - Fn::ImportValue: !Sub ${Project}-LBSecurityGroupID
+      Tags:
+        - Key: Name
+          Value: Load Balancer
+        - Key: Project
+          Value: !Ref Project
+
+  # Defines/declare a listener for an Application Load Balancer 
+  # The Load Balancer will have a Listener rule associated with the same target group
+  # Port 80 should be used in Security groups, health checks and listeners associated with the load balancer
+  LoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+      - Type: forward
+        TargetGroupArn: !Ref WebAppTargetGroup
+      LoadBalancerArn: !Ref WebAppLoadBalancer
+      Port: '80'
+      Protocol: HTTP
+
+  LoadBalancerListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+      - Type: forward
+        TargetGroupArn: !Ref WebAppTargetGroup
+      Conditions:
+      - Field: path-pattern
+        Values: [/]
+      ListenerArn: !Ref LoadBalancerListener
+      Priority: 1
+
+
+# Declaritive Scaling Policies 
+  WebServerCPUPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref WebAppServerGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: !Ref CPUUsagePercentPolicyTargetValue
+
+  WebServerRequestCountPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref WebAppServerGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ALBRequestCountPerTarget
+          ResourceLabel: !Join
+            - '/'
+            - - !GetAtt WebAppLoadBalancer.LoadBalancerFullName
+              - !GetAtt WebAppTargetGroup.TargetGroupFullName
+        TargetValue: !Ref ALBRequestCompleteCountTargetValue
+
+
+#Outputs
+Outputs:
+  DNS:
+    Description: The webapp URL (udagram)
+    Value:
+      !Sub
+        - 'http://${DNSName}'
+        - {DNSName: !GetAtt 'WebAppLoadBalancer.DNSName'}
+    Export:
+      Name: !Sub "${Project}-webappURL"

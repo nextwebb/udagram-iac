@@ -1,0 +1,10 @@
+[
+    {
+        "ParameterKey": "Project",
+        "ParameterValue": "Udagram-Website"
+    },
+    {
+        "ParameterKey": "EnvironmentName",
+        "ParameterValue": "Cloud-DevOps-Project2-Service-Infrastructure"
+    }
+]
